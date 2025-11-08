@@ -127,4 +127,52 @@ async function updateProfile(req, res) {
     }
 }
 
-module.exports = { me, updateProfile };
+// GET /users?page=1&pageSize=10&sortBy=createdAt|name&order=asc|desc
+async function listUsers(req, res) {
+    try {
+
+        const page = Math.max(1, parseInt(req.query.page, 10) || 1);
+        const pageSizeRaw = parseInt(req.query.pageSize || req.query.perPage, 10) || 10;
+        const pageSize = Math.min(100, Math.max(1, pageSizeRaw));
+
+        const sortBy = String(req.query.sortBy || 'createdAt').toLowerCase();
+        const order = String(req.query.order || 'desc').toLowerCase() === 'asc' ? 1 : -1;
+
+        const sort =
+            sortBy === 'name'
+                ? { lastName: order, firstName: order }
+                : { createdAt: order };
+
+        const filter = {};
+
+        const [total, users] = await Promise.all([
+            User.countDocuments(filter),
+            User.find(filter)
+                .select('-passwordHash')
+                .sort(sort)
+                .skip((page - 1) * pageSize)
+                .limit(pageSize)
+                .collation({ locale: 'es', strength: 1 })
+                .lean(),
+        ]);
+
+        const totalPages = Math.max(1, Math.ceil(total / pageSize));
+
+        return res.json({
+            status: 'success',
+            pagination: {
+                total,
+                page,
+                pageSize,
+                totalPages,
+                hasNext: page < totalPages,
+                hasPrev: page > 1,
+            },
+            users,
+        });
+    } catch {
+        return res.status(500).json({ status: 'error', error: 'INTERNAL_ERROR' });
+    }
+}
+
+module.exports = { me, updateProfile, listUsers };
